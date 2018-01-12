@@ -10,4 +10,52 @@ Before applying the MPC control, the **vehicle's state is estimated after some e
 
 This estimated state position is then used to **convert the waypoints from global to vehicle coordinate systems**. The waypoints are then preprocessed with **waypoint interpolation** and **weighting** before applying a **3rd order polyfit** to use as the reference driving path.
 
-The polyfit coefficients and estimated vehicle state after latency are then used by the MPC controller to **optimize a planned path over ~1sec horizon**.
+The polyfit coefficients and estimated vehicle state after latency are then used by the MPC controller to **optimize a planned path over ~1sec horizon**. The MPC minimizes a cost function based on a target reference speed, the **cross-track error (CTE), the heading error (EPSI)***, minimal use of actuators and smoothness between actuation steps. Constraints are applied to the model for it to satisfy the motion equations.
+
+The **steering and throttle actuation from the MPC's first step of the planned driving path*** are used to drive the actual car at each timestep including the expected latency delay. The MPC's planned path coordinates are visualized as a green line with the waypoints shown as a yellow line.
+
+## Key Files
+
+| File              | Description                                                                                                    |
+|:-----------------:|:--------------------------------------------------------------------------------------------------------------:|
+| /src/main.cpp     | Source code for **main loop** that handles **uWebSockets communication to simulator**                          |
+| /src/MPC.cpp, .h  | Source code for **MPC  algorithm** that controls the steering and throttle to follow reference waypoints along the track |
+| install-mac.sh    | Script for Mac to install uWebSocketIO required to interface with simulator                                    |
+| install-ubuntu.sh | Script for Linux to install uWebSocketIO required to interface with simulator                                  |
+
+The original Udacity project repository is [here](https://github.com/udacity/CarND-MPC-Project).
+
+## How to Build and Run Code
+
+This project involves the Udacity Term 2 Simulator which can be downloaded [here](https://github.com/udacity/self-driving-car-sim/releases)
+
+This repository includes two scripts (**install-mac.sh** and **install-ubuntu.sh**) that can be used to set up and install [uWebSocketIO](https://github.com/uWebSockets/uWebSockets) for either Linux or Mac systems.
+
+Once the install for uWebSocketIO is complete, the main program can be built and run by doing the following from the project top directory.
+
+1. mkdir build
+2. cd build
+3. cmake ..
+4. make
+5. ./mpc
+
+## Other Important Dependencies
+
+* cmake >= 3.5
+  * All OSes: [click here for installation instructions](https://cmake.org/install/)
+
+* make >= 4.1 (Linux, Mac), 3.81 (Windows)
+  * Linux: make is installed by default on most Linux distros
+  * Mac: [install Xcode command line tools to get make](https://developer.apple.com/xcode/features/)
+  * Windows: [Click here for installation instructions](http://gnuwin32.sourceforge.net/packages/make.htm)
+
+* gcc/g++ >= 5.4
+  * Linux: gcc / g++ is installed by default on most Linux distros
+  * Mac: same deal as make - [install Xcode command line tools](https://developer.apple.com/xcode/features/)
+  * Windows: recommend using [MinGW](http://www.mingw.org/)
+
+* uWebSockets (see above)
+
+* **Ipopt and CppAD:** Please refer to [this document](https://github.com/udacity/CarND-MPC-Project/blob/master/install_Ipopt_CppAD.md) for installation instructions.
+
+* [Eigen](http://eigen.tuxfamily.org/index.php?title=Main_Page). This is already part of the repo so you shouldn't have to worry about it.
