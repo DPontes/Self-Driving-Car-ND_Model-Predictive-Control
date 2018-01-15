@@ -17,6 +17,13 @@ constexpr double pi() { return M_PI; }
 double deg2rad(double x) { return x * pi() / 180; }
 double rad2deg(double x) { return x * 180 / pi(); }
 
+/*
+  Format Eigen log output for printing vectors and matrices:
+    precision = 4, flags=0, coeffSeparator=", ", rowSeparator="\n",
+    rowPrefix="[", rowSuffix="]"
+*/
+Eigen::IOFormat Clean(4, 0, ", ", "\n", "[", "]");
+
 // Checks if the SocketIO event has JSON data.
 // If there is data the JSON object in string format will be returned,
 // else the empty string "" will be returned.
@@ -45,9 +52,10 @@ double polyeval(Eigen::VectorXd coeffs, double x) {
 // Adapted from
 // https://github.com/JuliaMath/Polynomials.jl/blob/master/src/Polynomials.jl#L676-L716
 Eigen::VectorXd polyfit(Eigen::VectorXd xvals, Eigen::VectorXd yvals,
-                        int order) {
+                        int order, Eigen::ArrayXd weights) {
   assert(xvals.size() == yvals.size());
   assert(order >= 1 && order <= xvals.size() - 1);
+
   Eigen::MatrixXd A(xvals.size(), order + 1);
 
   for (int i = 0; i < xvals.size(); i++) {
@@ -60,9 +68,21 @@ Eigen::VectorXd polyfit(Eigen::VectorXd xvals, Eigen::VectorXd yvals,
     }
   }
 
-  auto Q = A.householderQr();
-  auto result = Q.solve(yvals);
-  return result;
+  /*
+    Apply weights by element-wise multiplication of left and right sides
+    of the equation A(x) * coeffs = y. For Eigen to do element-wise
+    multiplication, the .array() form needs to be used
+  */
+  A.array().colwise() *= weights;
+  yvals.array()       *= weights;
+
+  /*
+    Use QR decomposition by Householder method to solve A(x) * coeffs = y
+    for the polynomial coefficients
+  */
+  auto Qr = A.householderQr();
+  auto coeffs = Q.solve(yvals);
+  return coeffs;
 }
 
 int main() {
@@ -107,7 +127,7 @@ int main() {
           msgJson["steering_angle"] = steer_value;
           msgJson["throttle"] = throttle_value;
 
-          //Display the MPC predicted trajectory 
+          //Display the MPC predicted trajectory
           vector<double> mpc_x_vals;
           vector<double> mpc_y_vals;
 

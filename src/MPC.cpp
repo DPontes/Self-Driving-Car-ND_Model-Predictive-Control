@@ -194,42 +194,91 @@ class FG_eval {
 //
 // MPC class definition implementation.
 //
-MPC::MPC() {}
-MPC::~MPC() {}
+MPC::MPC() { Lf_ = kLf; }
+MPC::~MPC() {}  // Destructor
 
+/*
+  The Solve() method takes the current state vector and waypoint polyfit
+  coefficients and optimizes a planned trajectory path and actuations to minimize
+  a cost function while satisfying constraints on the state variables.
+  The cost function and constraints are defined in the FG_eval object.
+
+  Returns a vector of the steering and throttle actuations from the 1st timestep
+  of the MPC's planned path. The planned path x,y coords are also stored to
+  the mpc_path_x_, mpc_path_y_ variables for visualization.
+*/
 vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) {
   bool ok = true;
-  size_t i;
+
   typedef CPPAD_TESTVECTOR(double) Dvector;
 
-  // TODO: Set the number of model variables (includes both states and inputs).
-  // For example: If the state is a 4 element vector, the actuators is a 2
-  // element vector and there are 10 timesteps. The number of variables is:
-  //
-  // 4 * 10 + 2 * 9
-  size_t n_vars = 0;
-  // TODO: Set the number of constraints
-  size_t n_constraints = 0;
+  /*
+    Set the number of constraints and varaible (state and actuator inputs)
+    over the predicted horizon's timesteps.
+    State variables are (x, y, psi, v, cte, epsi)
+    Actuators are: steering delta, throttle acceleration
+  */
+  const size_t n_constraints = kNSteps * 6;         // state steps * 6 states
+  const size_t n_actuators   = (kNSteps - 1) * 2;   // actuation steps * 2 actuators
+  const size_t n_vars        = n_constraints + n_actuators;
 
-  // Initial value of the independent variables.
-  // SHOULD BE 0 besides initial state.
+  // Initial value of the independent variables. SHOULD BE 0 besides initial state.
   Dvector vars(n_vars);
   for (int i = 0; i < n_vars; i++) {
     vars[i] = 0;
   }
 
+  // Set the initial state to current state vector values
+  vars[x_start]    = state[0];
+  vars[y_start]    = state[1];
+  vars[psi_start]  = state[2];
+  vars[v_start]    = state[3];
+  vars[cte_start]  = state[4];
+  vars[epsi_start] = state[5];
+
+  // Set lower/upper limits for variables
   Dvector vars_lowerbound(n_vars);
   Dvector vars_upperbound(n_vars);
-  // TODO: Set lower and upper limits for variables.
+  for(int i = 0; i < delta_start; i++){
+    vars_lowerbound = -1.0e19;    // Initialize all lower bounds to no limit
+    vars_upperbound =  1.0e19;    // Initialize all upper bounds to no limit
+  }
 
-  // Lower and upper limits for the constraints
-  // Should be 0 besides initial state.
+  // Limit steering delta to stay within [-25,25] degrees range
+  for(int i = delta_start; i < a_start; i++){
+    vars_lowerbound = -0.436332;    // -25degrees -> rad
+    vars_upperbound =  0.436332;    // +25degrees -> rad
+  }
+
+  // Limit throttle acceleration to stay within [-1, +1] range
+  for(int i = a_start; i < n_vars; i++){
+    vars_lowerbound = -1.0;
+    vars_upperbound =  1.0;
+  }
+
+  // Set lower/upper limits for the constraints. SHOULD BE 0 besides initial state.
   Dvector constraints_lowerbound(n_constraints);
   Dvector constraints_upperbound(n_constraints);
   for (int i = 0; i < n_constraints; i++) {
     constraints_lowerbound[i] = 0;
     constraints_upperbound[i] = 0;
   }
+
+  // Set the initial state lower limits to current state vector values
+  constraints_lowerbound[x_start]    = state[0];
+  constraints_lowerbound[y_start]    = state[1];
+  constraints_lowerbound[psi_start]  = state[2];
+  constraints_lowerbound[v_start]    = state[3];
+  constraints_lowerbound[cte_start]  = state[4];
+  constraints_lowerbound[epsi_start] = state[5];
+
+  // Set the initial state upper limits to current state vector values
+  constraints_upperbound[x_start]    = state[0];
+  constraints_upperbound[y_start]    = state[1];
+  constraints_upperbound[psi_start]  = state[2];
+  constraints_upperbound[v_start]    = state[3];
+  constraints_upperbound[cte_start]  = state[4];
+  constraints_upperbound[epsi_start] = state[5];
 
   // object that computes objective and constraints
   FG_eval fg_eval(coeffs);
@@ -267,10 +316,18 @@ vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) {
   auto cost = solution.obj_value;
   std::cout << "Cost " << cost << std::endl;
 
-  // TODO: Return the first actuator values. The variables can be accessed with
-  // `solution.x[i]`.
-  //
-  // {...} is shorthand for creating a vector, so auto x1 = {1.0,2.0}
-  // creates a 2 element double vector.
-  return {};
+  // pack vector of MPC planned path x,y coordinates for visualization
+  mpc_path_x_.clear();
+  mpc_path_y_.clear();
+  for(int i = 1; i < kNSteps; i++){
+    mpc_path_x_.push_back(solution.x[x_start + i]);   // x from 2nd step on
+    mpc_path_y_.push_back(solution.y[x_start + i]);   // y from 2nd step on
+  }
+
+  // Pack vector of the 1st step actuations for steering and throotle commands
+  std::vector<double> mpc_actuation(2);
+  mpc_actuation[0] = solution.x[delta_start];   // 1st actuation steering
+  mpc_actuation[1] = solution.x[a_start];       // 1st actuation throotle
+
+  return mpc_actuation;
 }
