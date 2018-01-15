@@ -95,7 +95,7 @@ class FG_eval {
       Add cost terms based on the reference state (cost term coefficients
     were manually tuned to achieve ~110mph peak speed with smooth driving)
     */
-    for(int t = 0; t < kNSteps; t++){
+    for(unsigned int t = 0; t < kNSteps; t++){
       // Basic CTE
       fg[0] += 20 * CppAD::pow(vars[epsi_start + t], 2) * t;
 
@@ -111,13 +111,13 @@ class FG_eval {
     }
 
     // Add cost terms to minimize the use of actuators
-    for(int t = 0; t < kNSteps; t++){
+    for(unsigned int t = 0; t < kNSteps; t++){
       // Absolute steering angle
       fg[0] += 200000 * CppAD::pow(vars[delta_start + t], 2);
     }
 
     // Add cost terms to minimize the change between sequential actuations
-    for(int t = 0; t < kNSteps - 2; t++){
+    for(unsigned int t = 0; t < kNSteps - 2; t++){
       // Change in sequential steering actuations
       fg[0] += 100 * CppAD::pow(vars[delta_start + t + 1] -
                                 vars[delta_start + t], 2);
@@ -140,22 +140,22 @@ class FG_eval {
     fg[1 + epsi_start] = vars[epsi_start];
 
     // Constraints at each time step set to follow motion model equations
-    for(int t = 1; t < kNSteps; t++){
+    for(unsigned int t = 1; t < kNSteps; t++){
       // The state at time t1
-      const CppAD::<double> x1    = vars[x_start + t];
-      const CppAD::<double> y1    = vars[y_start + t];
-      const CppAD::<double> psi1  = vars[psi_start + t];
-      const CppAD::<double> v1    = vars[v_start + t];
-      const CppAD::<double> cte1  = vars[cte_start + t];
-      const CppAD::<double> epsi1 = vars[epsi_start + t];
+      const CppAD::AD<double> x1    = vars[x_start + t];
+      const CppAD::AD<double> y1    = vars[y_start + t];
+      const CppAD::AD<double> psi1  = vars[psi_start + t];
+      const CppAD::AD<double> v1    = vars[v_start + t];
+      const CppAD::AD<double> cte1  = vars[cte_start + t];
+      const CppAD::AD<double> epsi1 = vars[epsi_start + t];
 
       // The state at previous time t0
-      const CppAD::<double> x0    = vars[x_start + t - 1];
-      const CppAD::<double> y0    = vars[y_start + t - 1];
-      const CppAD::<double> psi0  = vars[psi_start + t - 1];
-      const CppAD::<double> v0    = vars[v_start + t - 1];
-      const CppAD::<double> cte0  = vars[cte_start + t - 1];
-      const CppAD::<double> epsi0 = vars[epsi_start + t - 1];
+      const CppAD::AD<double> x0    = vars[x_start + t - 1];
+      const CppAD::AD<double> y0    = vars[y_start + t - 1];
+      const CppAD::AD<double> psi0  = vars[psi_start + t - 1];
+      const CppAD::AD<double> v0    = vars[v_start + t - 1];
+      const CppAD::AD<double> cte0  = vars[cte_start + t - 1];
+      const CppAD::AD<double> epsi0 = vars[epsi_start + t - 1];
 
       // The actuation from time t0
       const CppAD::AD<double> delta0 = vars[delta_start + t - 1];
@@ -224,7 +224,7 @@ vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) {
 
   // Initial value of the independent variables. SHOULD BE 0 besides initial state.
   Dvector vars(n_vars);
-  for (int i = 0; i < n_vars; i++) {
+  for (unsigned int i = 0; i < n_vars; i++) {
     vars[i] = 0;
   }
 
@@ -239,19 +239,19 @@ vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) {
   // Set lower/upper limits for variables
   Dvector vars_lowerbound(n_vars);
   Dvector vars_upperbound(n_vars);
-  for(int i = 0; i < delta_start; i++){
+  for(unsigned int i = 0; i < delta_start; i++){
     vars_lowerbound = -1.0e19;    // Initialize all lower bounds to no limit
     vars_upperbound =  1.0e19;    // Initialize all upper bounds to no limit
   }
 
   // Limit steering delta to stay within [-25,25] degrees range
-  for(int i = delta_start; i < a_start; i++){
+  for(unsigned int i = delta_start; i < a_start; i++){
     vars_lowerbound = -0.436332;    // -25degrees -> rad
     vars_upperbound =  0.436332;    // +25degrees -> rad
   }
 
   // Limit throttle acceleration to stay within [-1, +1] range
-  for(int i = a_start; i < n_vars; i++){
+  for(unsigned int i = a_start; i < n_vars; i++){
     vars_lowerbound = -1.0;
     vars_upperbound =  1.0;
   }
@@ -259,7 +259,7 @@ vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) {
   // Set lower/upper limits for the constraints. SHOULD BE 0 besides initial state.
   Dvector constraints_lowerbound(n_constraints);
   Dvector constraints_upperbound(n_constraints);
-  for (int i = 0; i < n_constraints; i++) {
+  for (unsigned int i = 0; i < n_constraints; i++) {
     constraints_lowerbound[i] = 0;
     constraints_upperbound[i] = 0;
   }
@@ -319,9 +319,9 @@ vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) {
   // pack vector of MPC planned path x,y coordinates for visualization
   mpc_path_x_.clear();
   mpc_path_y_.clear();
-  for(int i = 1; i < kNSteps; i++){
+  for(unsigned int i = 1; i < kNSteps; i++){
     mpc_path_x_.push_back(solution.x[x_start + i]);   // x from 2nd step on
-    mpc_path_y_.push_back(solution.y[x_start + i]);   // y from 2nd step on
+    mpc_path_y_.push_back(solution.x[y_start + i]);   // y from 2nd step on
   }
 
   // Pack vector of the 1st step actuations for steering and throotle commands

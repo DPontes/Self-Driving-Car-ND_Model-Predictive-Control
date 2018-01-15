@@ -81,23 +81,81 @@ Eigen::VectorXd polyfit(Eigen::VectorXd xvals, Eigen::VectorXd yvals,
     for the polynomial coefficients
   */
   auto Qr = A.householderQr();
-  auto coeffs = Q.solve(yvals);
+  auto coeffs = Qr.solve(yvals);
   return coeffs;
 }
 
+/*
+  Interpolate additional points in the beginning sections of the way point
+  vector to prepare for polyfitting the car's reference line in order to
+  get a closer fit on the sections that are closer to the car's current position.
+  This helps prevent polyfit from curving away from the car and jumping around
+  when the set of waypoints chanes as the car is driving.
+
+  Returns an Eigen vector of the Interpolated waypoints with the beginning
+  "n_sections" number of sections having "n_interp_pts" number of points
+*/
+Eigen::VectorXd waypoint_interp(Eigen::VectorXd waypts, int n_interp_pts, int n_sections){
+  // Need at least 2 points per section (start and end point)
+  if(n_interp_pts < 2) { n_interp_pts = 2; }
+
+  // Number of interp pts for calcs = minus 1 to avoid overlapping endpoints
+  const int n_ipts_wk = n_interp_pts - 1;
+
+  // New total pts = original number of points - 1 pt for each section
+  //               + (number of new interp pts) * (number of interp sections)
+  const long n_tot_ipts = waypts.size() - n_sections + (n_ipts_wk * n_sections);
+
+  Eigen::VectorXd waypts_interp(n_tot_ipts);
+  for(int i = 0; i < waypts.size(); i++){
+    if(i < n_sections){
+      // Interpolate new points
+      double m = (waypts(i+1) - waypts(i)) / n_ipts_wk;   // interpolated slope
+      for(int j = 0; j < n_ipts_wk; j++){
+        waypts_interp[i*n_interp_pts + j] = waypts(i) + (j * m);  // interp point
+      }
+    }
+    else {
+      // pass through original points
+      waypts_interp[(i-n_sections) + (n_ipts_wk * n_sections)] = waypts(i);
+    }
+  }
+  return waypts_interp;
+}
+
+/*
+  Main loop to process measurements received from Udacity simulator via
+  uWebSocket messages. After receiving current vehicle x,y position, nearest
+  waypoints, heading angle, speed, steering angle, and throttle, process it
+  using an MPC controller and send resulting control steering angle and throttle
+  values back to the simulator to drive around the track.
+*/
 int main() {
   uWS::Hub h;
 
   // MPC is initialized here!
   MPC mpc;
 
-  h.onMessage([&mpc](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
+  // initialize loop counter
+  long int n_loop = 0;
+
+  // Set debug logginf decimal precision
+  std::cout << std::fixed;
+  std::cout << std::setprecision(6);
+
+  // Loop on communication message with simulator
+  h.onMessage([&mpc,&n_loop](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                      uWS::OpCode opCode) {
+
+    // Store time at start of processing received data for latency estimation
+    std::chrono::high_resolution_clock::time_point t_start =
+                        std::chrono::high_resolution_clock::now();
+
     // "42" at the start of the message means there's a websocket message event.
     // The 4 signifies a websocket message
     // The 2 signifies a websocket event
     string sdata = string(data).substr(0, length);
-    cout << sdata << endl;
+
     if (sdata.size() > 2 && sdata[0] == '4' && sdata[1] == '2') {
       string s = hasData(sdata);
       if (s != "") {
@@ -112,34 +170,124 @@ int main() {
           double psi = j[1]["psi"];
           double v = j[1]["speed"];
 
+          // Convert speed mph -> mps
+          v *= (1609.34 / 3600);
+
+          double steer_value = j[1]["steering_angle"];  // current speed (mph)
+          steer_value = -1.0;   // flip direction from sim to match mation equations
+
+          double throttle_value = j[1]["throttle"]; // current throttle [-1,1]
+
+          n_loop += 1;    // Increment loop counter for data logging reference
+
+          // Debug log actual vs predicted position stored from last cycle
           /*
-          * TODO: Calculate steering angle and throttle using MPC.
-          *
-          * Both are in between [-1, 1].
-          *
+          std::cout << "err px: " << (px - mpc.px_pred)
+                    << ", py: " << (py - mpc.py_pred)
+                    << ", psi: " << (psi - mpc.psi_pred)
+                    << ", v: " << (v - mpc.v_pred)
+                    << ", latency: " << mpc.ave_latency_ms << std::endl;
           */
-          double steer_value;
-          double throttle_value;
 
+          /*
+            Adjust predicted vehicle position to be after estimated latency time
+            using motion equations:
+              x   = x + v * cos(psi) * dt
+              y   = y + v * sin(psi) * dt
+              psi = psi + v / Lf * delta * dt
+              v   = v + a * dt, use throttle ~ a
+          */
+          const double latency = mpc.ave_latency_ms_ / 1000;
+          const double v_new   = v + throttle_value * latency;
+          const double v_ave   = (v + v_new) / 2;
+          const double psi_new = psi + v_ave / mpc.Lf_ * steer_value * latency;
+          const double psi_ave = (psi + psi_new) / 2;
+
+          mpc.px_pred_  = px + v_ave * cos(psi_ave) * latency;
+          mpc.py_pred_  = py + v_ave * sin(psi_ave) * latency;
+          mpc.psi_pred_ = psi_new;
+          mpc.v_pred_   = v_new;
+
+          // Convert waypoints from global to vehicle coordinates at
+          // vehicle's predicted position after latency
+          Eigen::VectorXd ptsx_veh(ptsx.size());
+          Eigen::VectorXd ptsy_veh(ptsy.size());
+          for(unsigned int i = 0; i < ptsx.size(); i++){
+            ptsx_veh(i) = (ptsx[i] - mpc.px_pred_) * cos(mpc.psi_pred_) +
+                          (ptsy[i] - mpc.py_pred_) * sin(mpc.psi_pred_);
+
+            ptsy_veh(i) = -(ptsx[i] - mpc.px_pred_) * sin(mpc.psi_pred_) +
+                           (ptsy[i] - mpc.py_pred_) * cos(mpc.psi_pred_);
+          }
+
+          //std::cout << "\nptsx_veh:\n" << ptsx_veh.format(Clean) << std::endl;
+          //std::cout << "\nptsy_veh:\n" << ptsy_veh.format(Clean) << std::endl;
+
+          /*
+            Interpolate additional waypoints between first two sections for
+            tighter polyfit close to vehicle's position to prevent reference
+            line from jumping around when new waypoints are processed
+          */
+          constexpr int n_interp_pts = 3;   // Interpolate section to have 3 points
+          constexpr int n_interp_sections = 2;  // Interpolate for first 2 sections
+
+          auto ptsx_interp = waypoint_interp(ptsx_veh, n_interp_pts, n_interp_sections);
+          auto ptsy_interp = waypoint_interp(ptsy_veh, n_interp_pts, n_interp_sections);
+
+          // std::cout << "\nptsx_interp:\n" << ptsx_interp.format(Clean) << std::endl;
+          // std::cout << "\nptsy_interp:\n" << ptsy_interp.format(Clean) << std::endl;
+
+          // Apply heavier polyfit weighting for interpolated sections
+          Eigen::ArrayXd weights = Eigen::ArrayXd::Ones(ptsx_interp.size());
+          for(int i = 0; i < (n_interp_pts*n_interp_sections-1);i++){
+            weights(i) = 5;
+          }
+
+          // std::cout << "\nweights:\n" << weights.format(Clean) << std::endl;
+
+          // Fit weighted interpolated waypoints to get 3rd order poly coefficients
+          constexpr int n_poly_order = 3;
+          auto waypt_coeffs = polyfit(ptsx_interp, ptsy_interp, n_poly_order, weights);
+
+          /*
+            Set current state predicted after latency adjustment and conversion
+            to vehicle coordinates (becomes x=0, y=0, psi=0 and dt=0 since
+            calculating state at current time)
+          */
+          Eigen::VectorXd cur_state(6);
+          double epsi = -atan(waypt_coeffs(1));
+          double cte  = -waypt_coeffs(0);
+
+          // Debug log output data for reference
+          std::cout << "n: " << n_loop << ", px: " << px << ", py: " << py
+                    << ", psi: " << psi << ", v: " << v << ", steer: "
+                    << steer_value << ", throttle: " << throttle_value
+                    << ", cte: " << cte << ", epsi: " << epsi
+                    << ", latency: " << mpc.ave_latency_ms_ << std::endl;
+
+          // Populate current state vector (x=0, y=0, psi=0, v, cte, epsi)
+          cur_state << 0, 0, 0, mpc.v_pred_, cte, epsi;
+
+          // Solve MPC optimizer with current state and waypoint coefficients
+          auto mpc_result = mpc.Solve(cur_state, waypt_coeffs);
+
+          /*
+            Set control for steering and throttle to MPC 1st actuator step result.
+            NOTE: Remember to divide by deg2rad(25) before you send the steering
+            value back, otherwise the values will be in between
+            [-deg2rad(25), deg2rad(25)] instead of [-1,1] and flip sign.
+          */
           json msgJson;
-          // NOTE: Remember to divide by deg2rad(25) before you send the steering value back.
-          // Otherwise the values will be in between [-deg2rad(25), deg2rad(25] instead of [-1, 1].
-          msgJson["steering_angle"] = steer_value;
-          msgJson["throttle"] = throttle_value;
+          msgJson["steering_angle"] = -mpc_result[0] / deg2rad(25);
+          msgJson["throttle"] = mpc_result[1];
 
-          //Display the MPC predicted trajectory
-          vector<double> mpc_x_vals;
-          vector<double> mpc_y_vals;
-
-          //.. add (x,y) points to list here, points are in reference to the vehicle's coordinate system
-          // the points in the simulator are connected by a Green line
-
-          msgJson["mpc_x"] = mpc_x_vals;
-          msgJson["mpc_y"] = mpc_y_vals;
+          //Display the MPC predicted trajectory (GREEN line)
+          msgJson["mpc_x"] = mpc.mpc_path_x_;
+          msgJson["mpc_y"] = mpc.mpc_path_y_;
 
           //Display the waypoints/reference line
-          vector<double> next_x_vals;
-          vector<double> next_y_vals;
+          std::vector<double> next_x_vals(ptsx_veh.data(), ptsx_veh.data() + ptsx_veh.size());
+          std::vector<double> next_y_vals(ptsy_veh.data(), ptsy_veh.data() + ptsy_veh.size());;
 
           //.. add (x,y) points to list here, points are in reference to the vehicle's coordinate system
           // the points in the simulator are connected by a Yellow line
@@ -147,7 +295,7 @@ int main() {
           msgJson["next_x"] = next_x_vals;
           msgJson["next_y"] = next_y_vals;
 
-
+          // Package message to send to simulator
           auto msg = "42[\"steer\"," + msgJson.dump() + "]";
           std::cout << msg << std::endl;
           // Latency
@@ -159,7 +307,20 @@ int main() {
           //
           // NOTE: REMEMBER TO SET THIS TO 100 MILLISECONDS BEFORE
           // SUBMITTING.
-          this_thread::sleep_for(chrono::milliseconds(100));
+          std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+          // Estimate actual average latency
+          auto cur_latency_ms =
+                  std::chrono::duration_cast<std::chrono::milliseconds>
+                  (std::chrono::high_resolution_clock::now() - t_start).count();
+
+          // Smooth stored latency with exponential moving average
+          constexpr int n_sm = 3;
+          mpc.ave_latency_ms_ = mpc.ave_latency_ms_ *
+                                (n_sm - 1) / n_sm +
+                                cur_latency_ms * 1/n_sm;
+
+          // Send message to simulator
           ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
         }
       } else {
