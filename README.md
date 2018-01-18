@@ -27,10 +27,15 @@ Tuning an MPC controller's cost function is **more indirect and complicated** th
 The motion model equations are from the basic bicycle model as provided by the Udacity lessons.
 
 x[t1] = x[t0] + v[t0] * cos(psi[t0]) * dt
+
 y[t1] = y[t0] + v[t0] * sin(psi[t0]) * dt
+
 psi[t1] = psi[t0] + v[t0] / Lf * delta[t0] * dt
+
 v[t1] = v[t0] + a[t0] * dt
+
 cte[t1] = (y[t0] - f(x[t0])) + (v[t0] * sin(epsi[t0]) * dt)
+
 epsi[t1] = (psi[t0] - psides[t0]) + (v[t0] * delta[t0] / Lf * dt)
 
 The only vehicle parameter is **Lf** which represents the distance from the car's CG to the steering axle in order to approximate the effective turning radius. The value for Lf was left equal to 2.67m as determined experimentally in the simulator by Udacity.
@@ -114,7 +119,7 @@ The model can compensate well for the expected 100ms actuator latency using the 
 
 The MPC controller is able to keep a **good driving line** with **smooth steering** and achieves a **peak speed of 110mph**. It is also able to stay between 90-100mph for each lap.
 
-Of course, this implementation was tuned for maximum speed on the simulator's race track so **normal city driving would need different cost function tuning**, but using MPC control should be able to achieve good results with driving behavior that is more natural than a simple PID controller. 
+Of course, this implementation was tuned for maximum speed on the simulator's race track so **normal city driving would need different cost function tuning**, but using MPC control should be able to achieve good results with driving behavior that is more natural than a simple PID controller.
 
 ## Key Files
 
