@@ -19,8 +19,8 @@ double rad2deg(double x) { return x * 180 / pi(); }
 
 /*
  Format Eigen log output for printing vectors and matrices:
-   precision=4, flags=0, coeffSeparator=", ", rowSeparator="\n",
-   rowPrefix="[", rowSuffix="]"
+    precision=4, flags=0, coeffSeparator=", ", rowSeparator="\n",
+    rowPrefix="[", rowSuffix="]"
 */
 Eigen::IOFormat Clean(4, 0, ", ", "\n", "[", "]");
 
